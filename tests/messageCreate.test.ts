@@ -15,7 +15,10 @@ function setup(opts: { inGuild: boolean; dm?: boolean }) {
     aliases: new Map(),
   };
   const message = {
-    author: { bot: false },
+    author: { bot: false, id: "u1" },
+    attachments: new Map(),
+    id: "m1",
+    channel: { id: "c1" },
     guild: opts.inGuild ? { id: "g1" } : null,
     content: "!!server",
     reply: () => {},

@@ -54,16 +54,23 @@ const command: Command = {
       // 500ms skew each other's reading. Owner-only command → accepted; share one
       // in-flight sample promise if anything else starts calling currentLoad().
       await si.currentLoad();
+      await si.disksIO();
+      await si.networkStats();
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      const [cpu, cpuInfo, mem, osInfo, disk, load] = await Promise.all([
+      const [cpu, cpuInfo, mem, osInfo, disk, load, net, netIface, io] = await Promise.all([
         si.cpuCurrentSpeed(),
         si.cpu(),
         si.mem(),
         si.osInfo(),
         si.fsSize(),
         si.currentLoad(),
+        si.networkStats(),
+        si.networkInterfaceDefault(),
+        si.disksIO(),
       ]);
+      // WHY: net[0] can be a VPN tunnel (utun); prefer the default route's NIC
+      const net0 = net.find((n) => n.iface === netIface) || net[0];
       const host = await hostInfo(osInfo);
 
       const uptime = si.time().uptime;
@@ -104,6 +111,17 @@ const command: Command = {
       const guilds = client.guilds.cache.size;
       const activeQueues = client.manager?.players.size || 0;
 
+      const fmtRate = (b: number) =>
+        b > 1e6 ? `${(b / 1e6).toFixed(1)} MB/s` : `${(b / 1024).toFixed(0)} KB/s`;
+      const fmtTotal = (b: number) =>
+        b > 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${(b / 1e6).toFixed(0)} MB`;
+      const heap = process.memoryUsage();
+      const lavalink = client.manager
+        ? [...client.manager.nodes.values()].map(
+            (n) => `${n.id}: ${n.connected ? "🟢" : "🔴"}`,
+          ).join(" ") || "—"
+        : "—";
+
       const embed = new EmbedBuilder()
         .setTitle(`🖥️ Server Status`)
         .setColor(0x00ff88)
@@ -126,14 +144,19 @@ const command: Command = {
               mem.active,
               mem.total,
               10
-            )}\nBot process: ${botRssMb} MB\`\`\``,
+            )}\nSwap: ${(mem.swapused / 1024 / 1024 / 1024).toFixed(2)} / ${(mem.swaptotal / 1024 / 1024 / 1024).toFixed(2)} GB\nBot: RSS ${botRssMb} MB • Heap ${((heap.heapUsed / 1024 / 1024) | 0)}/${((heap.heapTotal / 1024 / 1024) | 0)} MB\`\`\``,
             inline: false,
           },
           {
             name: "💾 Disk",
             value: `\`\`\`${diskUsed.toFixed(1)} / ${diskTotal.toFixed(
               1
-            )} GB\n${createProgressBar(diskUsed, diskTotal, 10)}\`\`\``,
+            )} GB\n${createProgressBar(diskUsed, diskTotal, 10)}\nR: ${(io?.rIO_sec ?? 0).toFixed(0)} KB/s  W: ${(io?.wIO_sec ?? 0).toFixed(0)} KB/s\`\`\``,
+            inline: false,
+          },
+          {
+            name: "🌐 Network",
+            value: `\`\`\`↑ ${fmtRate(net0?.tx_sec || 0)}  ↓ ${fmtRate(net0?.rx_sec || 0)}\nTotal ↑ ${fmtTotal(net0?.tx_bytes || 0)}  ↓ ${fmtTotal(net0?.rx_bytes || 0)}\`\`\``,
             inline: false,
           },
           {
@@ -145,7 +168,7 @@ const command: Command = {
           },
           {
             name: "🤖 Bot",
-            value: `Servers: \`${guilds}\`\nQueues: \`${activeQueues}\``,
+            value: `Servers: \`${guilds}\`\nQueues: \`${activeQueues}\`\nAPI: \`${client.ws.ping ?? "?"}ms\`\nLavalink: \`${lavalink}\``,
             inline: true,
           },
           {

@@ -8,8 +8,6 @@ import {
 } from "discord.js";
 import { ExtendedClient, defineEvent } from "../types";
 import { reactionRoleManager } from "../lib/ReactionRoleManager";
-import { reactionTrackerManager } from "../lib/ReactionTrackerManager";
-import { debounceUpdateReactionTracker } from "../lib/reactionTrackerUpdater";
 
 const event = defineEvent({
   name: Events.MessageReactionAdd,
@@ -54,29 +52,7 @@ const event = defineEvent({
     if (!reaction.message.guild) return;
 
     const emojiIdOrName = reaction.emoji.id || reaction.emoji.name;
-    console.log(`[Debug #4] [Stage: emoji/message matching] Extracted emoji: ${emojiIdOrName} for message: ${reaction.message.id}`);
     if (!emojiIdOrName) return;
-
-    console.log(`[Debug #5] [Stage: tracker config lookup] Looking up config for msg: ${reaction.message.id}, emoji: ${emojiIdOrName}`);
-    const trackerMapping = reactionTrackerManager.getMapping(reaction.message.id, emojiIdOrName);
-    
-    if (trackerMapping) {
-      console.log(`[Debug #5] [Stage: tracker config lookup] Match found! Guild: ${trackerMapping.guildId}`);
-      if (trackerMapping.guildId === reaction.message.guild.id) {
-        const trackerClient = reaction.message.client;
-        console.log(`[Debug #6] [Stage: debounce scheduling] Scheduling debounce update for botMsgID: ${trackerMapping.botMessageId}`);
-        debounceUpdateReactionTracker(
-          trackerClient,
-          trackerMapping.botMessageId,
-          trackerMapping.botMessageChannelId,
-        );
-      } else {
-         console.log(`[Debug #5] Guild mismatch: expected ${trackerMapping.guildId}, got ${reaction.message.guild.id}`);
-      }
-    } else {
-      console.log(`[Debug #5] [Stage: tracker config lookup] No match found.`);
-    }
-    // ------------------------------
 
     const mapping = reactionRoleManager.getMapping(reaction.message.id, emojiIdOrName);
     if (!mapping) return;

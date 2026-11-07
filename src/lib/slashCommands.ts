@@ -7,6 +7,8 @@ import {
   PermissionsBitField,
   SlashCommandBuilder,
   MessageFlags,
+  type SlashCommandOptionsOnlyBuilder,
+  type SlashCommandSubcommandsOnlyBuilder,
 } from "discord.js";
 import { ExtendedClient } from "../types";
 import { autoRoleManager } from "./AutoRoleManager";
@@ -28,7 +30,10 @@ import {
   createHelpRow,
 } from "./helpMenu";
 
-export function getSlashCommandDefinitions() {
+export function getSlashCommandDefinitions(): (
+  | SlashCommandOptionsOnlyBuilder
+  | SlashCommandSubcommandsOnlyBuilder
+)[] {
   return [
     new SlashCommandBuilder()
       .setName("help")

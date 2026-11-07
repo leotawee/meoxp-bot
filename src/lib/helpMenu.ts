@@ -74,11 +74,6 @@ export const helpCategories: Record<
           "`/setupgold set` / `/setupgold remove` / `/setupgold status`",
         inline: false,
       },
-      {
-        name: "Reaction tracker",
-        value: "`!!rrname setup/add/remove/list`",
-        inline: false,
-      },
     ],
   },
 };

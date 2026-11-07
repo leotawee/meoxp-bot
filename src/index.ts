@@ -31,6 +31,19 @@ const client = new Client({
     Partials.User,
     Partials.GuildMember,
   ],
+  // WHY: default caches grow unbounded on busy servers; sweep old entries to cap memory.
+  // A sweeper filter returns true for entries to REMOVE. Never remove the bot's own member
+  // (guild.members.me: autorole, hierarchy checks, GuildMember.manageable/moderatable throw
+  // without it) or anyone in voice (channel.members drives the auto-leave logic).
+  sweepers: {
+    messages: { interval: 300, lifetime: 900 },
+    users: { interval: 3600, filter: () => (user) => user.id !== user.client.user?.id },
+    guildMembers: {
+      interval: 3600,
+      filter: () => (member) =>
+        member.id !== member.client.user?.id && !member.voice.channelId,
+    },
+  },
 }) as ExtendedClient;
 
 // Initialize collections
@@ -114,13 +127,11 @@ const loadEvents = (): void => {
 
   // Initialize NoSQL Managers first to ensure data is ready before events fire
   const { reactionRoleManager } = require("./lib/ReactionRoleManager");
-  const { reactionTrackerManager } = require("./lib/ReactionTrackerManager");
   const { autoRoleManager } = require("./lib/AutoRoleManager");
   const { goldPriceManager } = require("./lib/GoldPriceManager");
   const { ttsManager } = require("./lib/TtsManager");
   try {
     await reactionRoleManager.init();
-    await reactionTrackerManager.init();
     await autoRoleManager.init();
     await goldPriceManager.init();
     await ttsManager.init();

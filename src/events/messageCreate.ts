@@ -1,5 +1,6 @@
-import { Events, type Message } from "discord.js";
+import { Events, type Message, PermissionFlagsBits } from "discord.js";
 import { type ExtendedClient, defineEvent } from "../types";
+import { punish, spamGuard } from "../lib/SpamGuard";
 import { ttsManager } from "../lib/TtsManager";
 
 const PREFIX = "!!";
@@ -8,6 +9,30 @@ const event = defineEvent({
   name: Events.MessageCreate,
   execute(message: Message, client: ExtendedClient) {
     if (message.author.bot) return;
+
+    // WHY: trusted staff are exempt; everyone else is checked for hacked-account image spam.
+    if (
+      message.guild &&
+      !message.member?.permissions.has(PermissionFlagsBits.ManageMessages)
+    ) {
+      const imageCount = [...message.attachments.values()].filter((a) =>
+        a.contentType?.startsWith("image/"),
+      ).length;
+      const hit = spamGuard.check({
+        userId: message.author.id,
+        guildId: message.guild.id,
+        channelId: message.channel.id,
+        messageId: message.id,
+        ts: Date.now(),
+        imageCount,
+      });
+      if (hit) {
+        punish(client, message.author.id, hit).catch((err) =>
+          console.error("[SpamGuard] punish error:", err),
+        );
+        return;
+      }
+    }
 
     // Handle bot commands
     if (message.content.startsWith(PREFIX)) {

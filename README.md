@@ -3,7 +3,7 @@
 MeoXP Bot is a TypeScript Discord bot built around three main pieces:
 
 - a Lavalink-backed music and TTS bot
-- a reaction role and reaction tracker system for server setup workflows
+- reaction roles, auto roles, and SpamGuard moderation for server setup workflows
 - a public read-only dashboard for status and queue visibility
 
 The repository contains the Discord bot, the HTTP and Socket.IO API used by the dashboard, the Next.js dashboard itself, and the Docker and deployment files used to run both services in production.
@@ -12,14 +12,14 @@ If you contribute to this repository, use feature branches and pull requests. Af
 
 ## What the project currently includes
 
-- Music playback through Discord voice channels using `discord.js`, `shoukaku`, and an external Lavalink node
+- Music playback through Discord voice channels using `discord.js`, `moodenglink`, and an external Lavalink node
 - YouTube search-based playback and direct URL playback through Lavalink
 - Queue management with loop modes, shuffle, clear, and interactive control panels
 - Persistent join mode with automatic voice-channel cleanup when the bot is left alone
 - Thai and English text-to-speech commands
 - Reaction Role mappings stored on disk with automatic role assignment on reaction add
-- Real-time Reaction Tracker messages that list users per emoji and update on reaction add and remove
-- Shared tracker bot messages that can render multiple emoji sections in one message
+- SpamGuard: times out accounts that look hacked (the same multi-image post blasted across channels)
+- Selected prefix commands delete themselves and the bot's replies after a delay to keep chat clean
 - A public Next.js dashboard that shows bot status, Lavalink state, high-level usage metrics, and active queues
 - A small public API and Socket.IO feed for dashboard data
 - Dockerfiles for the bot and dashboard, plus a Compose file for running both together
@@ -45,13 +45,20 @@ If you contribute to this repository, use feature branches and pull requests. Af
 - Role removal on unreact is intentionally not implemented
 - Custom emoji are stored by ID; Unicode emoji are stored as text
 
-### Reaction Tracker
+### SpamGuard
 
-- Managed by `!!rrname`
-- Mappings are persisted in `data/reactionTrackers.db`
-- Tracker messages update on both reaction add and reaction remove
-- Multiple tracked emoji can share the same bot message, and each emoji gets its own embed section
-- `!!rrname` is designed to work alongside Reaction Role mappings
+- Lives in `src/lib/SpamGuard.ts`, hooked from `src/events/messageCreate.ts`
+- Flags a user who posts 4 or more images in 2 or more channels within 60 seconds. The window is tracked per user across all guilds the bot is in
+- Deletes the flagged messages and times the user out for 1 hour in every guild the bot shares with them
+- Skips members with `Manage Messages` and members the bot cannot moderate
+- `SPAM_GUARD_DRY_RUN=1` only logs, and `SPAM_LOG_CHANNEL_ID` posts each result to a mod channel
+- The window is in memory and resets on restart
+
+### Command cleanup
+
+- A command with `cleanup: <seconds>` deletes its own message and the bot's replies to it that many seconds after it finishes
+- Set on `help`, `server`, `shell`, `setup`, `reactionrole`, `setupgold`, and `tts` (60s), and on `queue` and `nowplaying` (120s, matching their button lifetime)
+- Deleting the user's command message needs `Manage Messages`. Without it only the bot's replies are removed
 
 ### Dashboard
 
@@ -112,7 +119,8 @@ Notes:
 
 - `TOKEN` is required by `src/index.ts`
 - `OWNER_ID` is used by the owner-only commands: `!!status`, `!!purge`, and `!!shell`
-- `LAVALINK_URL` and `LAVALINK_PASSWORD` are required by `src/lib/ShoukakuManager.ts`
+- `LAVALINK_URL` and `LAVALINK_PASSWORD` are required by `src/lib/MoodenglinkManager.ts`
+- `SPAM_GUARD_DRY_RUN` and `SPAM_LOG_CHANNEL_ID` are optional SpamGuard settings
 - `THAILAND_POST_TOKEN` must be created in the Thailand Post developer portal and must never be committed
 - If you use the provided `lavalink/application.yml`, its `LAVALINK_SERVER_PASSWORD` must match the bot's `LAVALINK_PASSWORD`
 
@@ -326,35 +334,6 @@ Examples:
 !!rr list
 ```
 
-### Reaction Tracker
-
-Primary command: `!!rrname`
-
-| Command | Access | What it does |
-| --- | --- | --- |
-| `!!rrname setup <messageId> <emoji> [@role]` | Administrator | Creates a new tracker message and links one watched emoji to it |
-| `!!rrname add <messageId> <emoji> <botMessageId> [@role]` | Administrator | Attaches another watched emoji to an existing bot tracker message |
-| `!!rrname remove <messageId> <emoji>` | Administrator | Removes only the tracker mapping |
-| `!!rrname list` | Administrator | Lists tracker mappings for the guild |
-
-Behavior:
-
-- Run the command in the same text channel as the watched message
-- `setup` creates the bot-side tracker message automatically
-- `add` lets multiple emojis share the same bot tracker message
-- If you do not pass a role on setup/add, an existing Reaction Role mapping for the same message and emoji must already exist
-- `remove` removes the tracker mapping only; it does not remove the role mapping
-- Tracker messages update on both reaction add and reaction remove
-
-Examples:
-
-```text
-!!rrname setup 123456789012345678 <emoji> @Members
-!!rrname add 123456789012345678 <emoji> 234567890123456789 @Members
-!!rrname remove 123456789012345678 <emoji>
-!!rrname list
-```
-
 ### Owner-only administration
 
 | Command | Aliases | Access | What it does |
@@ -406,8 +385,9 @@ The following pieces are safe and expected to be customized:
 - Lavalink server settings in `lavalink/application.yml`
 - dashboard API URLs in `dashboard/.env.example` or real environment files
 - emoji-to-role mappings configured at runtime with `!!rr`
-- emoji-to-tracker mappings configured at runtime with `!!rrname`
-- watched message IDs, target role IDs, and bot tracker message IDs managed through Discord commands
+- watched message IDs and target role IDs managed through Discord commands
+- SpamGuard thresholds in `src/lib/SpamGuard.ts` (`createSpamGuard` options) and its env switches
+- per-command `cleanup` delay in each file under `src/commands/`
 - deployment host, SSH, and Tailscale secrets used by GitHub Actions
 - Compose build arg `NEXT_PUBLIC_BOT_API_URL`
 
@@ -470,7 +450,7 @@ The workflow fixes `TAG=meoxpbot` during deployment and relies on labels to stop
 +-- src/
 |   +-- commands/                Discord text commands
 |   +-- events/                  Discord event handlers
-|   +-- lib/                     Lavalink, reaction role, and reaction tracker logic
+|   +-- lib/                     Lavalink, TTS, reaction/auto role, SpamGuard, and tracking logic
 |   +-- types/                   Shared TypeScript types
 |   +-- api.ts                   Public bot API and Socket.IO server
 |   '-- index.ts                 Bot entry point
@@ -486,9 +466,10 @@ The workflow fixes `TAG=meoxpbot` during deployment and relies on labels to stop
 +-- Dockerfile                   Bot production image
 +-- docker-compose.yml           Multi-service local and production Compose file
 +-- scripts/
-|   '-- install-git-hooks.mjs   Configures core.hooksPath for this clone
+|   +-- install-git-hooks.mjs   Configures core.hooksPath for this clone
+|   '-- smoke.ts                Imports every module and boots the API (`pnpm smoke`)
++-- tests/                       Unit tests (`pnpm test`)
 +-- wait-for-lavalink.js         Container startup wait script for the bot
-+-- test_tracker.ts              Manual tracker regression harness
 '-- .github/workflows/deploy.yml Deployment workflow
 ```
 
@@ -504,10 +485,11 @@ The workflow fixes `TAG=meoxpbot` during deployment and relies on labels to stop
   - Add Reactions
   - Connect
   - Speak
-  - Manage Roles if you use `!!rr` or `!!rrname` with role assignment
-  - Manage Messages if you use `!!purge`
+  - Manage Roles if you use `!!rr` or auto roles
+  - Manage Messages for `!!purge`, SpamGuard, and command cleanup
+  - Moderate Members for SpamGuard timeouts
 - Queue data is in memory and will not survive a restart
-- Reaction role and reaction tracker mappings are persisted on disk under `data/`
+- Reaction role and auto role mappings are persisted on disk under `data/`
 - The public API intentionally exposes only summary and queue data
 - `!!shell` executes arbitrary shell commands and should remain restricted to a trusted owner ID
 
@@ -528,19 +510,25 @@ If you are extending the project:
 
 - add or modify Discord commands in `src/commands/`
 - add or modify Discord event handlers in `src/events/`
-- change Lavalink connection and queue behavior in `src/lib/ShoukakuManager.ts`
+- change Lavalink connection and queue behavior in `src/lib/MoodenglinkManager.ts`
 - change Reaction Role persistence in `src/lib/ReactionRoleManager.ts`
-- change Reaction Tracker persistence in `src/lib/ReactionTrackerManager.ts`
-- change tracker rendering and debounce behavior in `src/lib/reactionTrackerUpdater.ts`
+- change SpamGuard detection and punishment in `src/lib/SpamGuard.ts`
+- change command cleanup behavior in `src/events/messageCreate.ts`
 - change dashboard data payloads in `src/api.ts`
 - change dashboard UI in `dashboard/src/app/DashboardClient.tsx`
 - change dashboard server-side data fetching in `dashboard/src/app/page.tsx`
 - change deployment behavior in `.github/workflows/deploy.yml`, `docker-compose.yml`, `Dockerfile`, and `dashboard/Dockerfile`
 
-There is no automated test script in the root package at the moment. The main repository build check is `pnpm run build`, and `test_tracker.ts` is available as a targeted manual harness for reaction tracker work.
+Checks: `pnpm test` runs the unit tests in `tests/`, `pnpm smoke` imports every module and boots the API on a local port, and `pnpm run build` is the check CI runs on every pull request.
 
 ## License
 
-This repository is not distributed under a standard MIT license despite the license file format. The current `LICENSE` file includes additional restrictions, including personal and non-commercial use only, plus restrictions on redistribution and derivative works without written permission.
+MeoXP Bot is released under the [MIT License](LICENSE).
 
-Read `LICENSE` before using or redistributing this project.
+You may use, copy, modify, merge, publish, distribute, sublicense, and sell copies of this project, including for commercial use. That includes taking individual features (music, TTS, SpamGuard, reaction roles, auto roles, gold price alerts, parcel tracking, the dashboard) into your own bot and changing them however you like. Most features live in `src/lib/`, with their commands in `src/commands/` and their event wiring in `src/events/`.
+
+The one condition: keep the copyright and permission notice from `LICENSE` in all copies or substantial portions of the code you take. The software comes with no warranty.
+
+### Feedback
+
+If you reuse something from this repository and find a bug or want a change, open an issue at <https://github.com/leotawee/meoxp-bot/issues>. I read the feedback and fix what I can. Pull requests are welcome too; see `CONTRIBUTING.md`.

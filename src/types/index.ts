@@ -16,6 +16,8 @@ export interface Command {
   description: string;
   /** Allow running from DMs. Only for commands that never touch message.guild/member. */
   dm?: boolean;
+  /** Seconds after the command finishes to delete it and the bot's replies to it (guild only). */
+  cleanup?: number;
   execute: (
     message: Message,
     args: string[],

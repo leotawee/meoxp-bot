@@ -30,6 +30,7 @@ async function hostInfo(fallback: { hostname: string; distro: string }) {
 
 const command: Command = {
   name: "server",
+  cleanup: 60,
   aliases: ["status", "sysinfo", "sys"],
   description: "Show detailed server status",
   dm: true,

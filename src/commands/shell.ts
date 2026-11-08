@@ -4,6 +4,7 @@ import { ExtendedClient, Command } from "../types";
 
 const command: Command = {
   name: "shell",
+  cleanup: 60,
   aliases: ["exec", "sh"],
   description: "Execute shell command",
   async execute(

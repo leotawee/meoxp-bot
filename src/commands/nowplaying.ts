@@ -17,6 +17,7 @@ import {
 
 const command: Command = {
   name: "nowplaying",
+  cleanup: 120,
   aliases: ["np"],
   description: "Show the currently playing song with controls",
   async execute(

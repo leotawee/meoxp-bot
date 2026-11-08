@@ -5,6 +5,15 @@ import { ttsManager } from "../lib/TtsManager";
 
 const PREFIX = "!!";
 
+// Deletes the command message and the bot's replies to it. Deleting the user's message needs
+// ManageMessages; without it that delete just fails and the bot's replies still go.
+function cleanupCommand(message: Message, client: ExtendedClient) {
+  const replies = message.channel.messages.cache.filter(
+    (m) => m.author.id === client.user?.id && m.reference?.messageId === message.id,
+  );
+  void Promise.allSettled([message.delete(), ...replies.map((m) => m.delete())]);
+}
+
 const event = defineEvent({
   name: Events.MessageCreate,
   execute(message: Message, client: ExtendedClient) {
@@ -52,7 +61,14 @@ const event = defineEvent({
       if (!message.guild && !command.dm) return;
 
       try {
-        command.execute(message, args, client);
+        const result = command.execute(message, args, client);
+        const { cleanup } = command;
+        if (cleanup && message.guild) {
+          // WHY: start the timer after execute settles so slow commands' replies are caught.
+          Promise.resolve(result)
+            .catch((error) => console.error("Command error:", error))
+            .finally(() => setTimeout(() => cleanupCommand(message, client), cleanup * 1000));
+        }
       } catch (error) {
         console.error("Command error:", error);
         message.reply("❌ เกิดข้อผิดพลาดค่ะ 🥺");

@@ -8,6 +8,7 @@ import {
 
 const command: Command = {
   name: "help",
+  cleanup: 60,
   description: "Show the bot help menu",
   async execute(
     message: Message,

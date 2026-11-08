@@ -27,6 +27,7 @@ const SONGS_PER_PAGE = 10;
 
 const command: Command = {
   name: "queue",
+  cleanup: 120,
   aliases: ["q"],
   description: "Show the queue with pagination",
   async execute(

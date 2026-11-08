@@ -11,6 +11,7 @@ import { getPlayer, destroyPlayer, isLavalinkReady } from "../lib/MoodenglinkMan
 
 const command: Command = {
   name: "tts",
+  cleanup: 60,
   aliases: ["discordtts", "autotts"],
   description: "ระบบ Text-to-Speech และ Auto-read ประจำห้อง",
   async execute(

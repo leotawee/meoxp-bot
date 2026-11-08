@@ -4,6 +4,7 @@ import { autoRoleManager } from "../lib/AutoRoleManager";
 
 const command: Command = {
   name: "setup",
+  cleanup: 60,
   aliases: ["autorole", "arole", "autojoin"],
   description: "ตั้งค่าให้บอทมอบยศอัตโนมัติให้สมาชิกใหม่",
   execute: async (message: Message, args: string[], client: ExtendedClient) => {

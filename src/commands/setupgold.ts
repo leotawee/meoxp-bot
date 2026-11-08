@@ -5,6 +5,7 @@ import { fetchGoldPrice } from "../lib/GoldPriceFetcher";
 
 const command: Command = {
   name: "setupgold",
+  cleanup: 60,
   aliases: ["goldsetup", "goldprice"],
   description: "ตั้งค่าแจ้งเตือนราคาทองคำ 96.5% เมื่อราคาเปลี่ยนแปลง",
   execute: async (message: Message, args: string[], _client: ExtendedClient) => {

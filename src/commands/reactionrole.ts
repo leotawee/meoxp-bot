@@ -10,6 +10,7 @@ function parseEmoji(emojiStr: string): string {
 
 const command: Command = {
   name: "reactionrole",
+  cleanup: 60,
   aliases: ["rr"],
   description: "จัดการระบบ Reaction Role (ให้ยศจากอีโมจิ, เฉพาะ Admin)",
   execute: async (message: Message, args: string[], client: ExtendedClient) => {

@@ -25,6 +25,11 @@ import {
   type FlashTrackingErrorCode,
 } from "./FlashTracker";
 import {
+  fetchSPXTracking,
+  SPXTrackingError,
+  type SPXTrackingErrorCode,
+} from "./SPXTracker";
+import {
   attachHelpCollector,
   createHelpEmbed,
   createHelpRow,
@@ -56,6 +61,17 @@ export function getSlashCommandDefinitions(): (
         option
           .setName("tracking")
           .setDescription("หมายเลขพัสดุ Flash Express")
+          .setRequired(true)
+          .setMinLength(6)
+          .setMaxLength(20),
+      ),
+    new SlashCommandBuilder()
+      .setName("spxtrack")
+      .setDescription("ตรวจสอบสถานะพัสดุ SPX Express (Shopee)")
+      .addStringOption((option) =>
+        option
+          .setName("tracking")
+          .setDescription("หมายเลขพัสดุ SPX Express เช่น TH253387116642V")
           .setRequired(true)
           .setMinLength(6)
           .setMaxLength(20),
@@ -317,6 +333,63 @@ const FLASH_TRACKING_ERROR_MESSAGES: Record<FlashTrackingErrorCode, string> = {
   INVALID_RESPONSE: "❌ Flash tracking API ส่งข้อมูลกลับมาไม่ถูกต้อง",
 };
 
+const SPX_TRACKING_ERROR_MESSAGES: Record<SPXTrackingErrorCode, string> = {
+  INVALID_TRACKING_NUMBER: "❌ กรุณาระบุหมายเลขพัสดุ",
+  RATE_LIMITED: "⏳ ระบบ SPX tracking ถูกจำกัดการใช้งานชั่วคราว ลองใหม่ภายหลัง",
+  NOT_FOUND: "🔎 ไม่พบข้อมูลของหมายเลขพัสดุนี้",
+  TIMEOUT: "⏳ SPX tracking API ตอบกลับช้าเกินไป กรุณาลองใหม่อีกครั้ง",
+  UPSTREAM_FAILURE: "❌ ไม่สามารถตรวจสอบสถานะพัสดุได้ในขณะนี้",
+  INVALID_RESPONSE: "❌ SPX tracking API ส่งข้อมูลกลับมาไม่ถูกต้อง",
+};
+
+async function handleSpxTrackSlash(interaction: ChatInputCommandInteraction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  try {
+    const result = await fetchSPXTracking(
+      interaction.options.getString("tracking", true),
+    );
+    const latest = result.events.at(-1)!;
+    const latestText = latest.message ?? latest.status ?? "ไม่มีรายละเอียด";
+    const history = result.events
+      .slice(-5)
+      .reverse()
+      .map((event) => {
+        const text = event.message ?? event.status ?? "ไม่มีรายละเอียด";
+        return `**${event.timestamp ?? "ไม่ระบุเวลา"}**\n${text}`;
+      })
+      .join("\n\n");
+
+    const embed = new EmbedBuilder()
+      .setColor(0x1fcfa8)
+      .setTitle(`📦 ${result.trackingNo || "SPX Express"}`)
+      .setDescription(truncate(latestText, 4_096))
+      .addFields(
+        {
+          name: "สถานะ",
+          value: truncate(latest.status ?? "ไม่ระบุ", 1_024),
+          inline: true,
+        },
+        {
+          name: "🕐 อัปเดตล่าสุด",
+          value: truncate(latest.timestamp ?? "ไม่ระบุ", 1_024),
+          inline: true,
+        },
+        { name: "📋 ประวัติล่าสุด", value: truncate(history, 1_024) },
+      )
+      .setFooter({ text: "ข้อมูลจาก SPX Express" })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    const code =
+      error instanceof SPXTrackingError ? error.code : "UPSTREAM_FAILURE";
+    // WHY: log only the error class; tracking numbers may be PII.
+    console.error(`[SPXTracker] request failed: ${code}`);
+    await interaction.editReply({ content: SPX_TRACKING_ERROR_MESSAGES[code] });
+  }
+}
+
 async function handleFlashTrackSlash(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -458,6 +531,10 @@ export async function handleSlashCommand(
     await handlePostTrackSlash(interaction);
   }
 
+  if (interaction.commandName === "spxtrack") {
+    await handleSpxTrackSlash(interaction);
+    return;
+  }
   if (interaction.commandName === "flashtrack") {
     await handleFlashTrackSlash(interaction);
   }

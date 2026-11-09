@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildSPXSignedTrackingParam,
   fetchSPXTracking,
   SPXTrackingError,
   type SPXTrackingErrorCode,
 } from "../src/lib/SPXTracker";
 
-const TRACK_URL =
-  "https://spx.co.th/api/v2/fleet_order/tracking/search?sls_tracking_number=TH253387116642V";
+const FIXED_NOW = 1_730_000_000;
+const TRACKING_NUMBER = "TH260294465354E";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -26,36 +27,86 @@ async function assertTrackingError(
   );
 }
 
-test("fetchSPXTracking with a valid number returns normalized events", async () => {
-  const fetcher = (async (input: string | URL | Request) => {
-    assert.equal(String(input), TRACK_URL);
+test("buildSPXSignedTrackingParam signs with sha256 over number+seconds+salt", () => {
+  const param = buildSPXSignedTrackingParam(TRACKING_NUMBER, FIXED_NOW);
+  const [number, rest] = param.split("|");
+  assert.equal(number, TRACKING_NUMBER);
+  assert.ok(rest.startsWith(String(FIXED_NOW)));
+  const digest = rest.slice(String(FIXED_NOW).length);
+  assert.match(digest, /^[0-9a-f]{64}$/);
+  assert.equal(digest.length, 64);
+});
+
+test("fetchSPXTracking parses a real-shaped payload and signs the request", async () => {
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    assert.ok(url.startsWith("https://spx.co.th/api/v2/fleet_order/tracking/search?sls_tracking_number="));
+    const signed = decodeURIComponent(url.split("sls_tracking_number=")[1]);
+    assert.equal(signed.split("|")[0], TRACKING_NUMBER);
+    assert.equal(new Headers(init?.headers).get("x-language"), "th");
+
     return jsonResponse({
       retcode: 0,
-      message: "Success",
+      message: "",
       data: {
-        sls_tracking_number: "TH253387116642V",
+        sls_tracking_number: TRACKING_NUMBER,
+        current_status: "SOC_LHTransporting",
         tracking_list: [
-          { status: "Order Created", message: "ผู้ส่งกำลังเตรียมพัสดุ", timestamp: 1750000000 },
-          { status: "Delivered", message: "พัสดุถูกจัดส่งสำเร็จแล้ว", timestamp: 1750086400 },
+          {
+            timestamp: 1_794_180_841,
+            status: "SOC_LHTransporting",
+            message: "Parcel transporting to [ACMAI-A]",
+          },
+          {
+            timestamp: 1_794_099_981,
+            status: "Created",
+            message: "ออเดอร์อยู่ระหว่างการจัดเตรียม",
+          },
         ],
+        status_list: [],
       },
     });
   }) as typeof fetch;
 
-  const result = await fetchSPXTracking("TH253387116642V", fetcher);
+  const result = await fetchSPXTracking(TRACKING_NUMBER, fetcher);
 
-  assert.equal(result.trackingNo, "TH253387116642V");
-  assert.equal(result.statusText, "Delivered");
+  assert.equal(result.trackingNo, TRACKING_NUMBER);
+  assert.equal(result.statusText, "SOC_LHTransporting");
+  // API returns newest-first; the service must normalize to oldest-first.
   assert.equal(result.events.length, 2);
-  assert.equal(result.events[0].timestamp, "2025-06-15T15:06:40.000Z");
-  assert.equal(result.events[1].message, "พัสดุถูกจัดส่งสำเร็จแล้ว");
+  assert.equal(result.events[0].status, "Created");
+  assert.equal(result.events[1].timestamp, "2026-11-08T23:34:01.000Z");
 });
 
-test("fetchSPXTracking throws NOT_FOUND when data is empty", async () => {
+test("fetchSPXTracking normalizes the tracking number to uppercase", async () => {
+  const fetcher = (async (input: string | URL | Request) => {
+    const signed = decodeURIComponent(
+      String(input).split("sls_tracking_number=")[1],
+    );
+    assert.ok(signed.startsWith("TH260294465354E|"));
+    return jsonResponse({
+      retcode: 0,
+      message: "",
+      data: {
+        sls_tracking_number: TRACKING_NUMBER,
+        current_status: "Created",
+        tracking_list: [{ timestamp: 1_794_099_981, status: "Created", message: "x" }],
+      },
+    });
+  }) as typeof fetch;
+
+  const result = await fetchSPXTracking("th260294465354e", fetcher);
+  assert.equal(result.trackingNo, TRACKING_NUMBER);
+});
+
+test("fetchSPXTracking throws NOT_FOUND when the API answers empty data", async () => {
   const fetcher = (async () =>
     jsonResponse({ retcode: 0, message: "", data: {} })) as typeof fetch;
 
-  await assertTrackingError(fetchSPXTracking("TH253387116642V", fetcher), "NOT_FOUND");
+  await assertTrackingError(
+    fetchSPXTracking(TRACKING_NUMBER, fetcher),
+    "NOT_FOUND",
+  );
 });
 
 test("fetchSPXTracking rejects an empty tracking number", async () => {
@@ -66,5 +117,8 @@ test("fetchSPXTracking maps non-JSON responses to INVALID_RESPONSE", async () =>
   const fetcher = (async () =>
     new Response("<html>maintenance</html>")) as typeof fetch;
 
-  await assertTrackingError(fetchSPXTracking("TH253387116642V", fetcher), "INVALID_RESPONSE");
+  await assertTrackingError(
+    fetchSPXTracking(TRACKING_NUMBER, fetcher),
+    "INVALID_RESPONSE",
+  );
 });

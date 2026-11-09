@@ -1,8 +1,24 @@
-// Reverse-engineered from the SPX Express (Thailand) tracking page —
-// GET https://spx.co.th/api/v2/fleet_order/tracking/search?sls_tracking_number=...
-// No auth token needed. Unofficial: may change without notice.
+// Reverse-engineered from the SPX Express (Thailand) web tracker
+// (pages-brandhome chunk). GET /api/v2/fleet_order/tracking/search with a
+// signed sls_tracking_number param: `NUM|SECONDS<sha256hex(NUM+SECONDS+SALT)>`
+// plus an x-language header. No auth token needed. Unofficial: the signing
+// salt or path may change without notice; empty data = unknown number.
+import { createHash } from "node:crypto";
+
 const TRACK_API_URL = "https://spx.co.th/api/v2/fleet_order/tracking/search";
+// Signing salt baked into the SPX web bundle; rotate if lookups come back empty.
+const SIGNING_SALT = "MGViZmZmZTYzZDJhNDgxY2Y1N2ZlN2Q1ZWJkYzlmZDY=";
 const REQUEST_TIMEOUT_MS = 10_000;
+
+export function buildSPXSignedTrackingParam(
+  trackingNo: string,
+  nowSeconds = Math.floor(Date.now() / 1_000),
+): string {
+  const digest = createHash("sha256")
+    .update(trackingNo + nowSeconds + SIGNING_SALT)
+    .digest("hex");
+  return `${trackingNo}|${nowSeconds}${digest}`;
+}
 
 export type SPXTrackingErrorCode =
   | "INVALID_TRACKING_NUMBER"
@@ -59,20 +75,29 @@ function parseTrackingResponse(payload: unknown): SPXTrackingResult {
     throw new SPXTrackingError("NOT_FOUND");
   }
 
-  const events = list.filter(isRecord).map((item) => ({
-    status: asText(item.status),
-    message: asText(item.message),
-    timestamp: asIsoTimestamp(item.timestamp),
-  }));
+  const events = list
+    .filter(isRecord)
+    .map((item) => ({
+      status: asText(item.status),
+      message: asText(item.message),
+      timestamp: asIsoTimestamp(item.timestamp),
+    }))
+    // WHY: SPX returns events newest-first; the embeds expect oldest-last
+    // ordering where events.at(-1) is the latest update.
+    .sort((a, b) => {
+      const ta = a.timestamp ? Date.parse(a.timestamp) : Number.POSITIVE_INFINITY;
+      const tb = b.timestamp ? Date.parse(b.timestamp) : Number.POSITIVE_INFINITY;
+      return ta - tb;
+    });
 
   if (events.length === 0) {
     throw new SPXTrackingError("INVALID_RESPONSE");
   }
 
-  const latest = events.at(-1)!;
   return {
     trackingNo: asText(payload.data.sls_tracking_number) ?? "",
-    statusText: latest.status,
+    statusText:
+      asText(payload.data.current_status) ?? events.at(-1)!.status ?? null,
     events,
   };
 }
@@ -81,17 +106,18 @@ export async function fetchSPXTracking(
   trackingNo: string,
   fetcher: typeof fetch = fetch,
 ): Promise<SPXTrackingResult> {
-  const trimmed = trackingNo.trim();
+  const trimmed = trackingNo.trim().toUpperCase();
   if (!trimmed) {
     throw new SPXTrackingError("INVALID_TRACKING_NUMBER");
   }
 
+  const signedParam = buildSPXSignedTrackingParam(trimmed);
   let response: Response;
   try {
     response = await fetcher(
-      `${TRACK_API_URL}?sls_tracking_number=${encodeURIComponent(trimmed)}`,
+      `${TRACK_API_URL}?sls_tracking_number=${encodeURIComponent(signedParam)}`,
       {
-        headers: { "User-Agent": "Mozilla/5.0" },
+        headers: { "User-Agent": "Mozilla/5.0", "x-language": "th" },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       },
     );

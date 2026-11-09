@@ -33,9 +33,14 @@ export function createSpamGuard({
       if (input.imageCount < minImages) return null;
 
       const { imageCount: _, ...entry } = input;
-      const fresh = (byUser.get(entry.userId) ?? []).filter(
-        (e) => entry.ts - e.ts <= windowMs,
-      );
+      // WHY: users who post albums once and never trip the threshold otherwise
+      // keep entries forever; sweep the whole map so it can't grow unbounded.
+      for (const [userId, entries] of byUser) {
+        const kept = entries.filter((e) => entry.ts - e.ts <= windowMs);
+        if (kept.length === 0) byUser.delete(userId);
+        else byUser.set(userId, kept);
+      }
+      const fresh = (byUser.get(entry.userId) ?? []).slice();
       fresh.push(entry);
 
       if (new Set(fresh.map((e) => e.channelId)).size >= minChannels) {

@@ -65,9 +65,12 @@ const event = defineEvent({
         const { cleanup } = command;
         if (cleanup && message.guild) {
           // WHY: start the timer after execute settles so slow commands' replies are caught.
+          // unref(): a pending cleanup timer must not keep the process alive.
           Promise.resolve(result)
             .catch((error) => console.error("Command error:", error))
-            .finally(() => setTimeout(() => cleanupCommand(message, client), cleanup * 1000));
+            .finally(() =>
+              setTimeout(() => cleanupCommand(message, client), cleanup * 1000).unref(),
+            );
         }
       } catch (error) {
         console.error("Command error:", error);

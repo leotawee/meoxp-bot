@@ -28,8 +28,10 @@ lavalink:
     frameBufferDurationMs: 5000
 
     gcWarnings: true
-    opusEncodingQuality: 10
-    resamplingQuality: HIGH
+    # WHY: q=10 + HIGH resampling are max-quality presets that keep the JVM hot on
+    # every playing track. q=5 / MEDIUM are the Discord-voice sweet spot for CPU.
+    opusEncodingQuality: 5
+    resamplingQuality: MEDIUM
 
     playerUpdateInterval: 15
     readTimeout: 60000

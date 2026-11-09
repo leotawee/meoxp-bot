@@ -28,6 +28,18 @@ test("second channel after window expires does not trigger", () => {
   assert.equal(guard.check({ ...base, channelId: "c2", messageId: "m2", ts: 61_000 }), null);
 });
 
+test("stale entries of other users are swept, not kept forever", () => {
+  const guard = createSpamGuard();
+  // Two users post albums once; neither trips the 2-channel threshold.
+  guard.check({ ...base, channelId: "c1", messageId: "m1", ts: 0 });
+  guard.check({ ...base, userId: "u2", channelId: "c1", messageId: "m2", ts: 0 });
+  // Later activity by u3 sweeps u1/u2's stale entries out of the map.
+  guard.check({ ...base, userId: "u3", channelId: "c1", messageId: "m3", ts: 61_000 });
+  // u1's old entry is gone: second channel posted now (within window of this msg) can't revive it.
+  const hit = guard.check({ ...base, userId: "u1", channelId: "c2", messageId: "m4", ts: 61_100 });
+  assert.equal(hit, null);
+});
+
 test("different users are tracked separately", () => {
   const guard = createSpamGuard();
   guard.check({ ...base, channelId: "c1", messageId: "m1", ts: 0 });
